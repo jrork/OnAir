@@ -70,6 +70,7 @@ ESP8266WebServer server(80);
 static const char MAIN_PAGE[] PROGMEM = R"====(
 <HTML>
 <HEAD>
+<link rel="icon" href="data:,">
 <SCRIPT>
 
 var light_on = false;
