@@ -76,8 +76,6 @@ static const char MAIN_PAGE[] PROGMEM = R"====(
 var light_on = false;
 var light_color = '#000000';
 
-
-
 //
 // Print an Error message
 //
@@ -86,7 +84,6 @@ function displayError (errorMessage) {
   document.getElementById('errors').innerHTML = document.getElementById('errors').innerHTML + errorMessage + '<BR>';
   
 }
-
 
 //
 // Print a Debug message
@@ -159,7 +156,11 @@ function statusLoaded (jsonResponse) {
     document.getElementById('light_button').value = 'Turn Light ON';
     document.getElementById('state').style.color = '#000000';
   }
-  
+
+  next_light_color = jsonResponse.nextColor;
+  document.getElementById('set_next_light_color').style.borderColor = next_light_color;
+  prev_light_color = jsonResponse.prevColor;
+  document.getElementById('set_prev_light_color').style.borderColor = prev_light_color;
 }
 
 
@@ -175,6 +176,20 @@ function changeLight() {
     // Light is off -> turn it on
     restCall('PUT', '/light', statusLoaded);
   }
+}
+
+//
+// Set the Next color of the light
+//
+function setNextLightColor() {
+  restCall('PUT', '/light?next', statusLoaded);
+}
+
+//
+// Set the Prev color of the light
+//
+function setPrevLightColor() {
+  restCall('PUT', '/light?prev', statusLoaded);
 }
 
 
@@ -201,7 +216,7 @@ function doOnLoad() {
 <CENTER><H1>Welcome to the OnAir sign management page</H1></CENTER>
 <BR>
 <BR>
-<DIV style='width: 500px; height: 200px; margin-left: auto; margin-right: auto; background-color: #000000; font-size: 150px; font-weight: bold; text-align: center; vertical-align: middle; outline-style: solid; outline-color: #888888; outline-width: 10px;' id='state'>On Air</DIV>
+<DIV style='width: 500px; height: 200px; margin: auto; background-color: #000000; font-size: 8vw; font-weight: bold; text-align: center; vertical-align: middle; outline-style: solid; outline-color: #888888; outline-width: 10px;' id='state'>On Air</DIV>
 <BR>
 <BR>
 Light is currently <span id='light_state'></span><BR>
@@ -210,12 +225,13 @@ Light is currently <span id='light_state'></span><BR>
 <DIV style='overflow: hidden; margin-top: 10px; margin-bottom: 10px;'>
   <DIV style='text-align: center; float: left;'>
     <label for='light_button'>Change Light:</label><BR>
-    <input type='button' id='light_button' name='light_state' style='width: 120px; height: 40px;' onClick='changeLight();'><BR>
-    <input type='button' id='next_light_color' name='next_light_color' style='width: 60px; height: 40px;' value='Next Color<BR>-->' onClick='setNextLightColor();'><BR>
+    <input type='button' id='light_button' name='light_state' style='width: 160px; height: 40px; margin-bottom: 10px;' onClick='changeLight();'><BR>
+    <input type='button' id='set_prev_light_color' name='set_prev_light_color' style='width: 80px; height: 40px; border-style: solid; border-width: 5px; border-radius: 10px;' value='<-- Prev' onClick='setPrevLightColor();'>
+    <input type='button' id='set_next_light_color' name='set_next_light_color' style='width: 80px; height: 40px; border-style: solid; border-width: 5px; border-radius: 10px;' value='Next -->' onClick='setNextLightColor();'>
   </DIV>
   <DIV style='text-align: center; overflow: hidden;'>
     <label for='light_color'>New Light Color:</label><BR>
-    <input type='color' id='light_color' name='light_color' style='width: 120px; height: 40px;'><BR>
+    <input type='color' id='light_color' name='light_color' style='width: 120px; height: 40px; margin-bottom: 10px;'><BR>
     <input type='button' id='set_light_color' name='set_light_color' style='width: 120px; height: 40px;' value='Set Color' onClick='setLightColor();'><BR>
   </DIV>
 </DIV>
@@ -425,6 +441,13 @@ void turnNextLightOn() {
   turnLightOn(++currentColor);
 }
 
+/*
+ * Turn On the previous Color in the rotation
+ */
+void turnPrevLightOn() {
+  turnLightOn(--currentColor);
+}
+
 
 /*
  * Turn the Light on to the color specified
@@ -522,7 +545,15 @@ void handleLight() {
       }
       break;
     case HTTP_PUT:
-      turnLightOn();
+      if (server.hasArg("next")) {
+        turnNextLightOn();
+      }
+      else if (server.hasArg("prev")) {
+        turnPrevLightOn();
+      }
+      else {
+        turnLightOn();
+      }
       sendStatus();
       break;
     case HTTP_DELETE:
@@ -548,11 +579,26 @@ void sendStatus() {
   jsonDoc["lightOn"] = lightOn;
 
   // Send back current state of Color
-  uint32_t pixelColor = colorList[currentColor] & 0xFFFFFF; // remove any extra settings - only want RGB
-  String pixelColorStr = "#000000" + String(pixelColor,HEX);
-  pixelColorStr.setCharAt(pixelColorStr.length()-7, '#');
-  pixelColorStr.remove(0,pixelColorStr.length()-7);
-  jsonDoc["color"] = pixelColorStr;
+  //uint32_t pixelColor = colorList[currentColor] & 0xFFFFFF; // remove any extra settings - only want RGB
+  //String pixelColorStr = "#000000" + String(pixelColor,HEX);
+  //pixelColorStr.setCharAt(pixelColorStr.length()-7, '#');
+  //pixelColorStr.remove(0,pixelColorStr.length()-7);
+  String currColorStr = "";
+  color2String(&currColorStr, currentColor);
+  jsonDoc["color"] = currColorStr;
+
+  int nextColor = currentColor + 1;
+  if(nextColor >= maxColors) nextColor = 0; // If out of range, wrap around after max
+  String nextColorStr = "";
+  color2String(&nextColorStr, nextColor);
+  jsonDoc["nextColor"] = nextColorStr;
+
+  int prevColor = currentColor - 1;
+  if(prevColor < 0) prevColor = maxColors - 1; // If out of range, wrap around to max
+  String prevColorStr = "";
+  color2String(&prevColorStr, prevColor);
+  jsonDoc["prevColor"] = prevColorStr;
+  
   jsonDoc["currentColor"] = currentColor;
   jsonDoc["maxColors"] = maxColors;
   jsonDoc["MAX_COLORS"] = MAX_COLORS;
@@ -612,4 +658,15 @@ void handleNotFound() {
   }
   server.send(404, "text/plain", message);
   //digitalWrite(led, 0);
+}
+
+
+//
+// Convert uint32_t color to web #RRGGBB string
+//
+void color2String (String* colorString, int colorNum) {
+  uint32_t pixelColor = colorList[colorNum] & 0xFFFFFF; // remove any extra settings - only want RGB
+  colorString->concat("#000000" + String(pixelColor,HEX));
+  colorString->setCharAt(colorString->length()-7, '#');
+  colorString->remove(0,colorString->length()-7);
 }
