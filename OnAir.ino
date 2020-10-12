@@ -58,16 +58,16 @@ uint32_t colorList[] =  {
                           strip.Color(  0,   0, 255),
                           strip.Color(  0,   0,   0)    // Last one is to hold color set by web
                         };
-uint8_t MAX_COLORS = sizeof(colorList) / sizeof(colorList[0]);
-uint8_t maxColors = MAX_COLORS - 1; // default to not showing the last color unless set by web
-uint8_t currentColor = 0;
+int MAX_COLORS = sizeof(colorList) / sizeof(colorList[0]);
+int maxColors = MAX_COLORS - 1; // default to not showing the last color unless set by web
+int currentColor = 0;
 
 
 // For Web Server
 ESP8266WebServer server(80);
 
 // Main Page
-static const char MAIN_PAGE[] PROGMEM = R"(
+static const char MAIN_PAGE[] PROGMEM = R"====(
 <HTML>
 <HEAD>
 <SCRIPT>
@@ -158,7 +158,6 @@ function changeLight() {
     // Light is off -> turn it on
     restCall('PUT', '/light', statusLoaded);
   }
-  //restCall('GET', '/light', statusLoaded);
 }
 
 
@@ -195,6 +194,7 @@ Light is currently <span id='light_state'></span><BR>
   <DIV style='text-align: center; float: left;'>
     <label for='light_button'>Change Light:</label><BR>
     <input type='button' id='light_button' name='light_state' style='width: 120px; height: 40px;' onClick='changeLight();'><BR>
+    <input type='button' id='next_light_color' name='next_light_color' style='width: 60px; height: 40px;' value='Next Color<BR>-->' onClick='setNextLightColor();'><BR>
   </DIV>
   <DIV style='text-align: center; overflow: hidden;'>
     <label for='light_color'>New Light Color:</label><BR>
@@ -207,7 +207,8 @@ Light is currently <span id='light_state'></span><BR>
 <DIV id='debug' style='font-family: monospace; color:blue; outline-style: solid; outline-color:blue; outline-width: 2px; visibility: hidden; padding-top: 10px; padding-bottom: 10px; margin-top: 10px; margin-bottom: 10px;'></DIV><BR>
 <DIV id='errors' style='color:red; outline-style: solid; outline-color:red; outline-width: 2px; visibility: hidden; padding-top: 10px; padding-bottom: 10px; margin-top: 10px; margin-bottom: 10px;'></DIV><BR>
 </BODY>
-</HTML>)";
+</HTML>
+)====";
 
 
 /*************************************************
@@ -347,9 +348,11 @@ void loop() {
 
   if (shortPush) {
     if (lightOn) {
-      if(++currentColor >= maxColors) currentColor = 0; // Advance to next color, wrap around after max
+      turnNextLightOn();
     }
-    turnLightOn(currentColor);
+    else {
+      turnLightOn();
+    }
   }
   if (longPush) {
     turnLightOff();
@@ -399,12 +402,22 @@ void configModeCallback (WiFiManager *myWiFiManager) {
  *************************************/
 
 /*
+ * Turn On the next Color in the rotation
+ */
+void turnNextLightOn() {
+  turnLightOn(++currentColor);
+}
+
+
+/*
  * Turn the Light on to the color specified
  */
 void turnLightOn() {
   turnLightOn(currentColor);
 }
 void turnLightOn(int colorNum) {
+  if(colorNum >= maxColors) colorNum = 0; // If out of range, wrap around after max
+  if(colorNum < 0) colorNum = maxColors - 1; // If out of range, wrap around to max
   currentColor = colorNum;
   lightOn = true;
   colorWipe(colorList[currentColor],10);
