@@ -100,36 +100,52 @@ function displayDebug (debugMessage) {
 //
 // Function to make a REST call
 //
-function restCall(httpMethod, url, cFunction, body=null) {
-  var xhttp;
-  xhttp = new XMLHttpRequest();
-  xhttp.onreadystatechange = function() {
-    if (this.readyState == XMLHttpRequest.DONE) {
-      if (this.status == 200) {
-        if (cFunction != undefined) {
-          cFunction(this);
-        }
-      }
-      else {
-        displayError(this.responseText);
-      }
-    }
-  };
-  xhttp.open(httpMethod, url, true);
+function restCall(httpMethod, url, cFunction, bodyText=null) {
+  contentType = 'text/plain';
   if (httpMethod == 'POST') {
-    xhttp.setRequestHeader('Content-Type', 'application/json');
+    contentType = 'application/json';
   }
-  xhttp.send(body);
+  fetch (url, {
+    method: httpMethod,
+    headers: {
+      'Content-Type': contentType
+    },
+    body: bodyText,
+  })
+  .then (response => {
+    // Check Response Status
+    if (!response.ok) {
+      throw new Error('Error response: ' + response.status + ' ' + response.statusText);
+    }
+    return response;
+  })
+  .then (response => {
+    // process JSON response
+    const contentType = response.headers.get('content-type');
+    if (!contentType || !contentType.includes('application/json')) {
+      throw new TypeError("No JSON returned!");
+    }
+    return response.json();
+  })
+  .then (jsonData => {
+    // Send JSON to callback function if present
+    if (cFunction != undefined) {
+      displayDebug(JSON.stringify(jsonData));
+      cFunction(jsonData);
+    }
+  })
+  .catch((err) => {
+    displayError(err.message);
+  });
 }
+
 
 //
 // Handling displaying the current status
 //
-function statusLoaded (xhttpResponse) {
-  displayDebug(xhttpResponse.responseText);
-  var responseObj = JSON.parse(xhttpResponse.responseText);
-  light_on = responseObj.lightOn;
-  light_color = responseObj.color;
+function statusLoaded (jsonResponse) {
+  light_on = jsonResponse.lightOn;
+  light_color = jsonResponse.color;
   document.getElementById('light_color').value = light_color;
 
   if (light_on) {
