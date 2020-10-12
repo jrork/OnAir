@@ -216,7 +216,9 @@ function doOnLoad() {
 <CENTER><H1>Welcome to the OnAir sign management page</H1></CENTER>
 <BR>
 <BR>
-<DIV style='width: 500px; height: 200px; margin: auto; background-color: #000000; font-size: 8vw; font-weight: bold; text-align: center; vertical-align: middle; outline-style: solid; outline-color: #888888; outline-width: 10px;' id='state'>On Air</DIV>
+<DIV style='position: relative; width: 500px; height: 200px; margin: auto; background-color: #000000; outline-style: solid; outline-color: #888888; outline-width: 10px;'>
+  <DIV style='position: absolute; top: 50%; -ms-transform: translateY(50%); transform: translateY(-50%); width: 100%; text-align: center; background-color: #000000; font-size: 8vw; font-weight: bold;' id='state'>On Air</DIV>
+</DIV> 
 <BR>
 <BR>
 Light is currently <span id='light_state'></span><BR>
