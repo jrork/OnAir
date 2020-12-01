@@ -4,7 +4,7 @@
 // Webpage also available to control sign
 
 #include <Adafruit_NeoPixel.h>  // For controling the Light Strip
-#include <WiFiManager.h>        // For managing the Wifi Connection
+#include <WiFiManager.h>        // For managing the Wifi Connection by TZAPU
 #include <ESP8266WiFi.h>        // For running the Web Server
 #include <ESP8266WebServer.h>   // For running the Web Server
 #include <ESP8266mDNS.h>        // For running OTA and Web Server
@@ -16,18 +16,19 @@
 // Digital IO pin connected to the button. This will be driven with a
 // pull-up resistor so the switch pulls the pin to ground momentarily.
 // On a high -> low transition the button press logic will execute.
-#define BUTTON_PIN   D3
+#define BUTTON_PIN   4 //D3
 
-#define PIXEL_PIN    D8  // Digital IO pin connected to the NeoPixels.
+#define PIXEL_PIN    2 //
 
-#define PIXEL_COUNT 10  // Number of NeoPixels
+#define PIXEL_COUNT 100  // Number of NeoPixels
 
 // Device Info
 const char* devicename = "OnAir";
 const char* devicepassword = "onairadmin";
 
 // Declare NeoPixel strip object:
-Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+// Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_GRB + NEO_KHZ800);
+Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_BRG + NEO_KHZ400);
 // Argument 1 = Number of pixels in NeoPixel strip
 // Argument 2 = Arduino pin number (most are valid)
 // Argument 3 = Pixel type flags, add together as needed:
@@ -53,11 +54,11 @@ unsigned long lastButtonPushTime = 0; // The last time the button was pushed
 // State of the light and it's color
 boolean lightOn = false;
 uint32_t colorList[] =  {
-                          strip.Color(255,   0,   0),
-                          strip.Color(  0, 255,   0),
-                          strip.Color(  0,   0, 255),
-                          strip.Color(  0,   0,   0)    // Last one is to hold color set by web
-                        };
+  strip.Color(255,   0,   0),
+  strip.Color(  0, 255,   0),
+  strip.Color(  0,   0, 255),
+  strip.Color(  0,   0,   0)    // Last one is to hold color set by web
+};
 int MAX_COLORS = sizeof(colorList) / sizeof(colorList[0]);
 int maxColors = MAX_COLORS - 1; // default to not showing the last color unless set by web
 int currentColor = 0;
@@ -268,6 +269,13 @@ void setup() {
   WiFi.mode(WIFI_STA);      // explicitly set mode, esp defaults to STA+AP
   WiFiManager wm;
   // wm.resetSettings();    // reset settings - for testing
+
+  // Set static IP to see if it fixes my problem - joe
+  IPAddress _ip = IPAddress(192, 168, 1, 19);
+  IPAddress _gw = IPAddress(192, 168, 1, 1);
+  IPAddress _sn = IPAddress(255, 255, 255, 0);
+  wm.setSTAStaticIPConfig(_ip, _gw, _sn);
+  
   wm.setAPCallback(configModeCallback); //set callback that gets called when connecting to previous WiFi fails, and enters Access Point mode
   //if it does not connect it starts an access point with the specified name here  "AutoConnectAP"
   if (!wm.autoConnect()) {
@@ -401,7 +409,7 @@ void loop() {
 /******************************
  * Callback Utilities during setup
  ******************************/
- 
+
 /*
  * Blink the LED Strip.
  * If on  then turn off
@@ -462,7 +470,8 @@ void turnLightOn(int colorNum) {
   if(colorNum < 0) colorNum = maxColors - 1; // If out of range, wrap around to max
   currentColor = colorNum;
   lightOn = true;
-  colorWipe(colorList[currentColor],10);
+  //colorWipe(colorList[currentColor],10);
+  colorSet(colorList[currentColor]);
 }
 
 
