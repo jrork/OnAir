@@ -42,14 +42,10 @@ Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_BRG + NEO_KHZ400);
 Ticker ticker;
 boolean ledState = LOW;   // Used for blinking LEDs when WifiManager in Connecting and Configuring
 
-
-// For turning LED strip On or Off based on button push
-//int     mode     = 0;    // Currently-active animation mode, 0-9
-boolean oldState = HIGH;
-unsigned long lastButtonPushTime = 0; // The last time the button was pushed
-
 // State of the light and it's color
 boolean lightOn = false;
+uint8_t lightBrightness = 255;
+
 uint32_t colorList[] =  {
   strip.Color(255,   0,   0),
   strip.Color(  0, 255,   0),
@@ -73,6 +69,7 @@ static const char MAIN_PAGE[] PROGMEM = R"====(
 
 var light_on = false;
 var light_color = '#000000';
+var light_brightness = 255;
 
 //
 // Print an Error message
@@ -142,7 +139,9 @@ function restCall(httpMethod, url, cFunction, bodyText=null) {
 function statusLoaded (jsonResponse) {
   light_on = jsonResponse.lightOn;
   light_color = jsonResponse.color;
+  light_brightness = jsonResponse.brightnessValue;
   document.getElementById('light_color').value = light_color;
+  document.getElementById('brightness_state').value = 'Howdy!';
 
   if (light_on) {
     document.getElementById('light_state').innerHTML = 'ON';
@@ -221,6 +220,14 @@ function doOnLoad() {
   restCall('GET', '/light', statusLoaded);
 }
 
+//
+// Set the brightness of the strip
+//
+function setBrightness() {
+  var postObj = new Object();
+  postObj.brightnessValue = 123;
+  restCall('POST', '/brightness', statusLoaded, JSON.stringify(postObj));
+}
 
 </SCRIPT>
 </HEAD>
@@ -228,12 +235,13 @@ function doOnLoad() {
 <CENTER><H1>Welcome to Lil's LED Bulletin Board Management Page</H1></CENTER>
 <BR>
 <BR>
-<DIV style='position: relative; width: 500px; height: 200px; margin: auto; background-color: #000000; outline-style: solid; outline-color: #888888; outline-width: 10px;'>
+<DIV style='position: relative; width: 500px; height: 200px; margin: auto; background-color: #000000; outline-style: solid; outline-color: light_color; outline-width: 10px;'>
   <DIV style='position: absolute; top: 50%; -ms-transform: translateY(50%); transform: translateY(-50%); width: 100%; text-align: center; background-color: #000000; font-size: 8vw; font-weight: bold;' id='state'>Light is On!</DIV>
 </DIV> 
 <BR>
 <BR>
 Light is currently <span id='light_state'></span><BR>
+Brightness is currently set to <span id='brightness_state'></span><BR>
 <HR style='margin-top: 20px; margin-bottom: 10px;'>
 <form>
 <DIV style='overflow: hidden; margin-top: 10px; margin-bottom: 10px;'>
@@ -256,6 +264,10 @@ Light is currently <span id='light_state'></span><BR>
     <label for='christmas'>Christmas</label><BR>
     <input type='button' id='set_christmas' name='set_christmas' style='width: 120px; height: 40px;' value='Christmas' onClick='setChristmas();'><BR>
   </DIV>
+  <DIV style='text-align: center; overflow: hidden;'>
+    <label for='brightness'>Brightness</label><BR>
+    <input type='button' id='set_brightness' name='set_brightness' style='width: 120px; height: 40px;' value='Brightness' onClick='setBrightness();'><BR>
+  </DIV>
 </DIV>
 </form>
 <HR style='margin-top: 10px; margin-bottom: 10px;'>
@@ -272,10 +284,6 @@ Light is currently <span id='light_state'></span><BR>
 void setup() {
   Serial.begin(115200);
 
-  //
-  // Set up the Button and LED strip
-  //
-  //pinMode(BUTTON_PIN, INPUT_PULLUP);
   strip.begin(); // Initialize NeoPixel strip object (REQUIRED)
   strip.show();  // Initialize all pixels to 'off'
   ticker.attach(0.6, tick); // start ticker to slow blink LED strip during Setup
@@ -356,6 +364,7 @@ void setup() {
   //
   server.on("/", handleRoot);
   server.on("/light", handleLight);
+  server.on("/brightness", handleBrightness);
   server.onNotFound(handleNotFound);
   server.begin();
   //Serial.println("HTTP server started");
@@ -458,6 +467,12 @@ void turnLightOn(int colorNum) {
 void turnLightOff() {
   lightOn = false;
   colorSet(strip.Color(  0,   0,   0));    // Black/off
+}
+
+void setBrightnessValue(uint8_t bright_value) {
+  lightBrightness = bright_value;
+  strip.setBrightness(bright_value);  //valid brightness values are 0<->255
+  strip.show();
 }
 
 
@@ -572,6 +587,26 @@ void handleLight() {
       break;
   }
 }
+
+
+//
+// Handle service for Light
+//
+void handleBrightness() {
+  switch (server.method()) {
+    case HTTP_POST:
+      if (setBrightness()) {
+        sendStatus();
+      }
+      break;
+    case HTTP_GET:
+      sendStatus();
+      break;
+    default:
+      server.send(405, "text/plain", "Method Not Allowed");
+      break;
+  }
+}
   
 //
 // Handle returning the status of the sign
@@ -581,6 +616,7 @@ void sendStatus() {
 
   // Send back current state of Light
   jsonDoc["lightOn"] = lightOn;
+  jsonDoc["lightBrightness"] = lightBrightness;
 
   // Send back current state of Color
   //uint32_t pixelColor = colorList[currentColor] & 0xFFFFFF; // remove any extra settings - only want RGB
@@ -643,6 +679,38 @@ boolean setLightColor() {
   return true;
 }
 
+//
+// Handle setting a new color for the sign
+//
+boolean setBrightness() {
+  if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
+    server.send(400, "text/plain", "Bad Request - Missing Body");
+    return false;
+  }
+  StaticJsonDocument<200> requestDoc;
+  DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
+  if (error) {
+    server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
+    return false;
+  }
+  if (!requestDoc.containsKey("brightnessValue")) {
+    server.send(400, "text/plain", "Bad Request - Missing Color Argument");
+    return false;
+  }
+  uint8_t brightnessValue = requestDoc["brightnessValue"];
+  setBrightnessValue(brightnessValue);
+//  String colorStr = requestDoc["color"];
+//  if (colorStr.charAt(0) == '#') {
+//    colorStr.setCharAt(0, '0');
+//  }
+//  char color_c[10] = "";
+//  colorStr.toCharArray(color_c, 8);
+//  uint32_t color = strtol(color_c, NULL, 16);
+//  maxColors = MAX_COLORS;
+//  colorList[maxColors-1] = color;
+//  turnLightOn(maxColors-1);
+  return true;
+}
 
 //
 // Display a Not Found page
