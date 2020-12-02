@@ -16,14 +16,14 @@
 // Digital IO pin connected to the button. This will be driven with a
 // pull-up resistor so the switch pulls the pin to ground momentarily.
 // On a high -> low transition the button press logic will execute.
-#define BUTTON_PIN   4 //D3
+//#define BUTTON_PIN   4 //D3
 
 #define PIXEL_PIN    2 //
 
 #define PIXEL_COUNT 100  // Number of NeoPixels
 
 // Device Info
-const char* devicename = "OnAir";
+const char* devicename = "LilED";
 const char* devicepassword = "onairadmin";
 
 // Declare NeoPixel strip object:
@@ -38,9 +38,6 @@ Adafruit_NeoPixel strip(PIXEL_COUNT, PIXEL_PIN, NEO_BRG + NEO_KHZ400);
 //   NEO_RGB     Pixels are wired for RGB bitstream (v1 FLORA pixels, not v2)
 //   NEO_RGBW    Pixels are wired for RGBW bitstream (NeoPixel RGBW products)
 
-//for LED status
-#define SHORT_PUSH 20  // Mininum Duration in Millis for a short push
-#define LONG_PUSH  1000 // Mininum Duration in Millis for a long push
 #include <Ticker.h>
 Ticker ticker;
 boolean ledState = LOW;   // Used for blinking LEDs when WifiManager in Connecting and Configuring
@@ -204,6 +201,20 @@ function setLightColor() {
 }
 
 //
+// Turns on rainbow effect
+//
+function setRainbow() {
+  restCall('PUT', '/light?rainbow', statusLoaded);
+}
+
+//
+// Turns on Christmas effect
+//
+function setChristmas() {
+  restCall('PUT', '/light?christmas', statusLoaded);
+}
+
+//
 // actions to perform when the page is loaded
 //
 function doOnLoad() {
@@ -214,11 +225,11 @@ function doOnLoad() {
 </SCRIPT>
 </HEAD>
 <BODY style='max-width: 960px; margin: auto;' onload='doOnLoad();'>
-<CENTER><H1>Welcome to the OnAir sign management page</H1></CENTER>
+<CENTER><H1>Welcome to Lil's LED Bulletin Board Management Page</H1></CENTER>
 <BR>
 <BR>
 <DIV style='position: relative; width: 500px; height: 200px; margin: auto; background-color: #000000; outline-style: solid; outline-color: #888888; outline-width: 10px;'>
-  <DIV style='position: absolute; top: 50%; -ms-transform: translateY(50%); transform: translateY(-50%); width: 100%; text-align: center; background-color: #000000; font-size: 8vw; font-weight: bold;' id='state'>On Air</DIV>
+  <DIV style='position: absolute; top: 50%; -ms-transform: translateY(50%); transform: translateY(-50%); width: 100%; text-align: center; background-color: #000000; font-size: 8vw; font-weight: bold;' id='state'>Light is On!</DIV>
 </DIV> 
 <BR>
 <BR>
@@ -236,6 +247,14 @@ Light is currently <span id='light_state'></span><BR>
     <label for='light_color'>New Light Color:</label><BR>
     <input type='color' id='light_color' name='light_color' style='width: 120px; height: 40px; margin-bottom: 10px;'><BR>
     <input type='button' id='set_light_color' name='set_light_color' style='width: 120px; height: 40px;' value='Set Color' onClick='setLightColor();'><BR>
+  </DIV>
+  <DIV style='text-align: center; overflow: hidden;'>
+    <label for='rainbow'>Rainbow</label><BR>
+    <input type='button' id='set_rainbow' name='set_rainbow' style='width: 120px; height: 40px;' value='Rainbow' onClick='setRainbow();'><BR>
+  </DIV>
+  <DIV style='text-align: center; overflow: hidden;'>
+    <label for='christmas'>Christmas</label><BR>
+    <input type='button' id='set_christmas' name='set_christmas' style='width: 120px; height: 40px;' value='Christmas' onClick='setChristmas();'><BR>
   </DIV>
 </DIV>
 </form>
@@ -256,7 +275,7 @@ void setup() {
   //
   // Set up the Button and LED strip
   //
-  pinMode(BUTTON_PIN, INPUT_PULLUP);
+  //pinMode(BUTTON_PIN, INPUT_PULLUP);
   strip.begin(); // Initialize NeoPixel strip object (REQUIRED)
   strip.show();  // Initialize all pixels to 'off'
   ticker.attach(0.6, tick); // start ticker to slow blink LED strip during Setup
@@ -361,48 +380,6 @@ void loop() {
   server.handleClient();
   MDNS.update();
 
-
-  // Get current button state.
-  boolean newState = digitalRead(BUTTON_PIN);
-  unsigned long buttonPushDuration = 0;
-  boolean longPush = false;
-  boolean shortPush = false;
-  
-  // Check if state changed from high to low (button press).
-  if((newState == LOW) && (oldState == HIGH)) {
-    lastButtonPushTime = millis();
-  }
-  if ((newState == HIGH) && (oldState == LOW)) {
-    buttonPushDuration = millis() - lastButtonPushTime;
-  }
-
-  if ((newState == LOW) && (oldState == LOW)) {
-    if ((millis() - lastButtonPushTime) > LONG_PUSH) {
-      longPush = true;
-    }
-  }
-
-  if (buttonPushDuration > LONG_PUSH) {
-    longPush = true;
-  }
-  else if (buttonPushDuration > SHORT_PUSH) {
-    shortPush = true;
-  }
-
-  if (shortPush) {
-    if (lightOn) {
-      turnNextLightOn();
-    }
-    else {
-      turnLightOn();
-    }
-  }
-  if (longPush) {
-    turnLightOff();
-  }
-
-  // Set the last-read button state to the old state.
-  oldState = newState;
 }
 
 
@@ -532,7 +509,17 @@ void rainbow(int wait) {
   }
 }
 
-
+// Alternate each pixel between green and red.
+void christmas() {
+  for(int i=0; i<strip.numPixels(); i++) { // For each pixel in strip...
+    if(i%2) {
+      strip.setPixelColor(i, strip.Color(255, 0, 0));
+    } else {
+      strip.setPixelColor(i, strip.Color(0, 255, 0));
+    }
+  }
+    strip.show(); // Update strip with new contents
+}
 
 /******************************************
  * Web Server Functions
@@ -562,6 +549,12 @@ void handleLight() {
       else if (server.hasArg("prev")) {
         turnPrevLightOn();
       }
+      else if (server.hasArg("rainbow")) {
+        rainbow(100);
+      }
+      else if (server.hasArg("christmas")) {
+        christmas();
+      }      
       else {
         turnLightOn();
       }
