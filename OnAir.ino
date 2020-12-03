@@ -189,7 +189,19 @@ function setPrevLightColor() {
   restCall('PUT', '/light?prev', statusLoaded);
 }
 
+//
+// Increase the light brightness
+//
+function increaseBrightness() {
+  restCall('PUT', '/brightness?up', statusLoaded);
+}
 
+//
+// Decrease the light brightness
+//
+function decreaseBrightness() {
+  restCall('PUT', '/brightness?down', statusLoaded);
+}
 //
 // Set the color of the light
 //
@@ -223,11 +235,12 @@ function doOnLoad() {
 //
 // Set the brightness of the strip
 //
-function setBrightness() {
+function setBrightness(brightVal) {
   var postObj = new Object();
-  postObj.brightnessValue = 123;
+  postObj.brightnessValue = brightVal;
   restCall('POST', '/brightness', statusLoaded, JSON.stringify(postObj));
 }
+
 
 </SCRIPT>
 </HEAD>
@@ -266,7 +279,10 @@ Brightness is currently set to <span id='brightness_state'></span><BR>
   </DIV>
   <DIV style='text-align: center; overflow: hidden;'>
     <label for='brightness'>Brightness</label><BR>
-    <input type='button' id='set_brightness' name='set_brightness' style='width: 120px; height: 40px;' value='Brightness' onClick='setBrightness();'><BR>
+    <input id="slide" type="range" min="1" max="254" step="1" value="254"><BR>
+    <input type='button' id='increase_brightness' name='increase_brightness' style='width: 120px; height: 40px;' value='Brightness+' onClick='increaseBrightness();'><BR>
+    <input type='button' id='decrease_brightness' name='decrease_brightness' style='width: 120px; height: 40px;' value='Brightness-' onClick='decreaseBrightness();'><BR>
+
   </DIV>
 </DIV>
 </form>
@@ -274,6 +290,15 @@ Brightness is currently set to <span id='brightness_state'></span><BR>
 <DIV id='debug' style='font-family: monospace; color:blue; outline-style: solid; outline-color:blue; outline-width: 2px; visibility: hidden; padding-top: 10px; padding-bottom: 10px; margin-top: 10px; margin-bottom: 10px;'></DIV><BR>
 <DIV id='errors' style='color:red; outline-style: solid; outline-color:red; outline-width: 2px; visibility: hidden; padding-top: 10px; padding-bottom: 10px; margin-top: 10px; margin-bottom: 10px;'></DIV><BR>
 </BODY>
+<SCRIPT>
+
+//Slider for brightness
+var slide = document.getElementById('slide')
+
+slide.onchange = function() { 
+    setBrightness(this.value);   
+}
+</SCRIPT>
 </HTML>
 )====";
 
@@ -434,14 +459,14 @@ void configModeCallback (WiFiManager *myWiFiManager) {
  * Turn On the next Color in the rotation
  */
 void turnNextLightOn() {
-  turnLightOn(++currentColor);
+  turnLightOn(currentColor+10);
 }
 
 /*
  * Turn On the previous Color in the rotation
  */
 void turnPrevLightOn() {
-  turnLightOn(--currentColor);
+  turnLightOn(currentColor-10);
 }
 
 
@@ -471,10 +496,23 @@ void turnLightOff() {
 
 void setBrightnessValue(uint8_t bright_value) {
   lightBrightness = bright_value;
-  strip.setBrightness(bright_value);  //valid brightness values are 0<->255
+  strip.setBrightness(bright_value%255);  //valid brightness values are 0<->255
   strip.show();
 }
 
+/*
+ * Turn On the next Color in the rotation
+ */
+void increaseBrightness() {
+  setBrightnessValue(++lightBrightness);
+}
+
+/*
+ * Turn On the previous Color in the rotation
+ */
+void decreaseBrightness() {
+  setBrightnessValue(--lightBrightness);
+}
 
 // Fill strip pixels one after another with a color. Strip is NOT cleared
 // first; anything there will be covered pixel by pixel. Pass in color
@@ -598,6 +636,17 @@ void handleBrightness() {
       if (setBrightness()) {
         sendStatus();
       }
+      break;
+    case HTTP_PUT:
+      if (server.hasArg("up")) {
+        increaseBrightness();
+      }
+      else if (server.hasArg("down")) {
+        decreaseBrightness();
+      }     
+      else {
+      }
+      sendStatus();
       break;
     case HTTP_GET:
       sendStatus();
