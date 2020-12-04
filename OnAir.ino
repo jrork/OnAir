@@ -141,7 +141,6 @@ function statusLoaded (jsonResponse) {
   light_color = jsonResponse.color;
   light_brightness = jsonResponse.brightnessValue;
   document.getElementById('light_color').value = light_color;
-  document.getElementById('brightness_state').value = 'Howdy!';
 
   if (light_on) {
     document.getElementById('light_state').innerHTML = 'ON';
@@ -459,14 +458,14 @@ void configModeCallback (WiFiManager *myWiFiManager) {
  * Turn On the next Color in the rotation
  */
 void turnNextLightOn() {
-  turnLightOn(currentColor+10);
+  turnLightOn(currentColor);
 }
 
 /*
  * Turn On the previous Color in the rotation
  */
 void turnPrevLightOn() {
-  turnLightOn(currentColor-10);
+  turnLightOn(currentColor);
 }
 
 
@@ -504,14 +503,14 @@ void setBrightnessValue(uint8_t bright_value) {
  * Turn On the next Color in the rotation
  */
 void increaseBrightness() {
-  setBrightnessValue(++lightBrightness);
+  setBrightnessValue(lightBrightness+10);
 }
 
 /*
  * Turn On the previous Color in the rotation
  */
 void decreaseBrightness() {
-  setBrightnessValue(--lightBrightness);
+  setBrightnessValue(lightBrightness+10);
 }
 
 // Fill strip pixels one after another with a color. Strip is NOT cleared
@@ -668,10 +667,6 @@ void sendStatus() {
   jsonDoc["lightBrightness"] = lightBrightness;
 
   // Send back current state of Color
-  //uint32_t pixelColor = colorList[currentColor] & 0xFFFFFF; // remove any extra settings - only want RGB
-  //String pixelColorStr = "#000000" + String(pixelColor,HEX);
-  //pixelColorStr.setCharAt(pixelColorStr.length()-7, '#');
-  //pixelColorStr.remove(0,pixelColorStr.length()-7);
   String currColorStr = "";
   color2String(&currColorStr, currentColor);
   jsonDoc["color"] = currColorStr;
@@ -716,12 +711,7 @@ boolean setLightColor() {
     return false;
   }
   String colorStr = requestDoc["color"];
-  if (colorStr.charAt(0) == '#') {
-    colorStr.setCharAt(0, '0');
-  }
-  char color_c[10] = "";
-  colorStr.toCharArray(color_c, 8);
-  uint32_t color = strtol(color_c, NULL, 16);
+  uint32_t color = string2color(colorStr);
   maxColors = MAX_COLORS;
   colorList[maxColors-1] = color;
   turnLightOn(maxColors-1);
@@ -729,7 +719,13 @@ boolean setLightColor() {
 }
 
 //
-// Handle setting a new color for the sign
+// Handle setting an array of colors where the array consists of a pixel index and a color
+//
+void setLightColorArray(
+
+
+//
+// Handle setting a brightness for the sign
 //
 boolean setBrightness() {
   if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
@@ -743,29 +739,20 @@ boolean setBrightness() {
     return false;
   }
   if (!requestDoc.containsKey("brightnessValue")) {
-    server.send(400, "text/plain", "Bad Request - Missing Color Argument");
+    server.send(400, "text/plain", "Bad Request - Missing Brightness Argument");
     return false;
   }
+  
   uint8_t brightnessValue = requestDoc["brightnessValue"];
   setBrightnessValue(brightnessValue);
-//  String colorStr = requestDoc["color"];
-//  if (colorStr.charAt(0) == '#') {
-//    colorStr.setCharAt(0, '0');
-//  }
-//  char color_c[10] = "";
-//  colorStr.toCharArray(color_c, 8);
-//  uint32_t color = strtol(color_c, NULL, 16);
-//  maxColors = MAX_COLORS;
-//  colorList[maxColors-1] = color;
-//  turnLightOn(maxColors-1);
   return true;
 }
+
 
 //
 // Display a Not Found page
 //
 void handleNotFound() {
-  //digitalWrite(led, 1);
   String message = "File Not Found\n\n";
   message += "URI: ";
   message += server.uri();
@@ -778,7 +765,6 @@ void handleNotFound() {
     message += " " + server.argName(i) + ": " + server.arg(i) + "\n";
   }
   server.send(404, "text/plain", message);
-  //digitalWrite(led, 0);
 }
 
 
@@ -790,4 +776,17 @@ void color2String (String* colorString, int colorNum) {
   colorString->concat("#000000" + String(pixelColor,HEX));
   colorString->setCharAt(colorString->length()-7, '#');
   colorString->remove(0,colorString->length()-7);
+}
+
+//
+// Convert web #RRGGBB string to uint32_t color
+//
+uint32_t string2color(String colorStr) {
+  if (colorStr.charAt(0) == '#') {
+    colorStr.setCharAt(0, '0');
+  }
+  char color_c[10] = "";
+  colorStr.toCharArray(color_c, 8);
+  uint32_t color = strtol(color_c, NULL, 16);
+  return color;
 }
