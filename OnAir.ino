@@ -389,6 +389,7 @@ void setup() {
   server.on("/", handleRoot);
   server.on("/light", handleLight);
   server.on("/brightness", handleBrightness);
+  server.on("/animation", handleAnimation);
   server.onNotFound(handleNotFound);
   server.begin();
   //Serial.println("HTTP server started");
@@ -627,7 +628,7 @@ void handleLight() {
 
 
 //
-// Handle service for Light
+// Handle service for Brightness
 //
 void handleBrightness() {
   switch (server.method()) {
@@ -646,6 +647,25 @@ void handleBrightness() {
       else {
       }
       sendStatus();
+      break;
+    case HTTP_GET:
+      sendStatus();
+      break;
+    default:
+      server.send(405, "text/plain", "Method Not Allowed");
+      break;
+  }
+}
+
+//
+// Handle service for Animation
+//
+void handleAnimation() {
+  switch (server.method()) {
+    case HTTP_POST:
+      if (setAnimation()) {
+        sendStatus();
+      }
       break;
     case HTTP_GET:
       sendStatus();
@@ -719,12 +739,6 @@ boolean setLightColor() {
 }
 
 //
-// Handle setting an array of colors where the array consists of a pixel index and a color
-//
-void setLightColorArray(
-
-
-//
 // Handle setting a brightness for the sign
 //
 boolean setBrightness() {
@@ -748,6 +762,50 @@ boolean setBrightness() {
   return true;
 }
 
+//
+// Handle setting an animation for the sign
+// This function is going to receive a JSON object that contains colors on a per
+// pixel basis, brightness for the entire strip, and more.
+//
+boolean setAnimation() {
+  if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
+    server.send(400, "text/plain", "Bad Request - Missing Body");
+    return false;
+  }
+  StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
+  DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
+  if (error) {
+    server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
+    return false;
+  }
+//  if (!requestDoc.containsKey("brightness")) {
+//    server.send(400, "text/plain", "Bad Request - Missing Brightness Argument");
+//    return false;
+//  }
+  uint8_t noOfFrames = requestDoc["numberOfFrames"];
+
+  for(uint8_t frameIndex=0; frameIndex<noOfFrames;frameIndex++) {
+//uint8_t frameIndex = 0;
+//  while(frameIndex < noOfFrames) {
+    JsonObject frame = requestDoc["frame"][frameIndex];
+    uint8_t brightnessValue = frame["brightness"];
+    setBrightnessValue(brightnessValue);
+    
+    uint8_t numOfPixels = frame["strip_size"];    
+    for(uint8_t j=0; j<numOfPixels; j++) { // For each pixel in strip...
+      uint8_t pixel = frame["strip"][j]["p"];
+      String colorStr = frame["strip"][j]["c"];
+      uint32_t color = string2color(colorStr);
+      strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
+    }
+    strip.show();
+//    uint8_t next = frame["nextId"];
+//    frameIndex = next;
+//    delay(5000);
+//    delay(frame["strip"][i]["timeToNext"]);
+  }
+  return true;
+}
 
 //
 // Display a Not Found page
