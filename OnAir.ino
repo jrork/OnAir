@@ -12,12 +12,6 @@
 #include <ArduinoOTA.h>         // For running OTA
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 
-
-// Digital IO pin connected to the button. This will be driven with a
-// pull-up resistor so the switch pulls the pin to ground momentarily.
-// On a high -> low transition the button press logic will execute.
-//#define BUTTON_PIN   4 //D3
-
 #define PIXEL_PIN    2 //
 
 #define PIXEL_COUNT 100  // Number of NeoPixels
@@ -44,7 +38,7 @@ boolean ledState = LOW;   // Used for blinking LEDs when WifiManager in Connecti
 
 // State of the light and it's color
 boolean lightOn = false;
-uint8_t lightBrightness = 255;
+uint8_t lightBrightness = 100;
 
 uint32_t colorList[] =  {
   strip.Color(255,   0,   0),
@@ -55,6 +49,11 @@ uint32_t colorList[] =  {
 int MAX_COLORS = sizeof(colorList) / sizeof(colorList[0]);
 int maxColors = MAX_COLORS - 1; // default to not showing the last color unless set by web
 int currentColor = 0;
+
+uint8_t gFrameIndex = 0;
+uint32_t gDelayTimeLeft = 0;
+uint8_t gNoOfFrames = 0;
+DynamicJsonDocument gRequestDoc(6000);
 
 
 // For Web Server
@@ -69,7 +68,7 @@ static const char MAIN_PAGE[] PROGMEM = R"====(
 
 var light_on = false;
 var light_color = '#000000';
-var light_brightness = 255;
+var light_brightness = 100;
 
 //
 // Print an Error message
@@ -322,7 +321,7 @@ void setup() {
   // wm.resetSettings();    // reset settings - for testing
 
   // Set static IP to see if it fixes my problem - joe
-  IPAddress _ip = IPAddress(192, 168, 1, 19);
+  IPAddress _ip = IPAddress(192, 168, 1, 15);
   IPAddress _gw = IPAddress(192, 168, 1, 1);
   IPAddress _sn = IPAddress(255, 255, 255, 0);
   wm.setSTAStaticIPConfig(_ip, _gw, _sn);
@@ -335,7 +334,7 @@ void setup() {
     ESP.restart();
     delay(1000);
   }
-  //Serial.println("connected");
+  Serial.println("connected");
 
 
   //
@@ -412,7 +411,8 @@ void loop() {
   // Handle any requests
   ArduinoOTA.handle();
   server.handleClient();
-  MDNS.update();
+  //MDNS.update();
+  animate();
 
 }
 
@@ -495,9 +495,9 @@ void turnLightOff() {
 }
 
 void setBrightnessValue(uint8_t bright_value) {
-  lightBrightness = bright_value;
-  strip.setBrightness(bright_value%255);  //valid brightness values are 0<->255
-  strip.show();
+  int mappedValue = map(bright_value%255, 0, 100, 1, 254);
+  lightBrightness = mappedValue;
+  strip.setBrightness(mappedValue);  //valid brightness values are 0<->255
 }
 
 /*
@@ -505,6 +505,7 @@ void setBrightnessValue(uint8_t bright_value) {
  */
 void increaseBrightness() {
   setBrightnessValue(lightBrightness+10);
+  strip.show();
 }
 
 /*
@@ -512,6 +513,7 @@ void increaseBrightness() {
  */
 void decreaseBrightness() {
   setBrightnessValue(lightBrightness+10);
+  strip.show();
 }
 
 // Fill strip pixels one after another with a color. Strip is NOT cleared
@@ -582,6 +584,7 @@ void christmas() {
 // Handle a request for the root page
 //
 void handleRoot() {
+  Serial.println("Handling Root");
   server.send_P(200, "text/html", MAIN_PAGE, sizeof(MAIN_PAGE));
 }
 
@@ -663,7 +666,7 @@ void handleBrightness() {
 void handleAnimation() {
   switch (server.method()) {
     case HTTP_POST:
-      if (setAnimation()) {
+      if (setNewAnimation()) {
         sendStatus();
       }
       break;
@@ -759,6 +762,7 @@ boolean setBrightness() {
   
   uint8_t brightnessValue = requestDoc["brightnessValue"];
   setBrightnessValue(brightnessValue);
+  strip.show();
   return true;
 }
 
@@ -767,45 +771,150 @@ boolean setBrightness() {
 // This function is going to receive a JSON object that contains colors on a per
 // pixel basis, brightness for the entire strip, and more.
 //
-boolean setAnimation() {
+boolean setNewAnimation() {
+  Serial.println("Handling New Animation");
   if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
     server.send(400, "text/plain", "Bad Request - Missing Body");
     return false;
   }
-  StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
+  //StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
+  DynamicJsonDocument requestDoc(6000);
   DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
   if (error) {
     server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
     return false;
   }
-//  if (!requestDoc.containsKey("brightness")) {
+//  if (!requestDoc.containsKey("brightness" || )) {
 //    server.send(400, "text/plain", "Bad Request - Missing Brightness Argument");
 //    return false;
 //  }
-  uint8_t noOfFrames = requestDoc["numberOfFrames"];
-
-  for(uint8_t frameIndex=0; frameIndex<noOfFrames;frameIndex++) {
-//uint8_t frameIndex = 0;
-//  while(frameIndex < noOfFrames) {
-    JsonObject frame = requestDoc["frame"][frameIndex];
-    uint8_t brightnessValue = frame["brightness"];
-    setBrightnessValue(brightnessValue);
-    
-    uint8_t numOfPixels = frame["strip_size"];    
-    for(uint8_t j=0; j<numOfPixels; j++) { // For each pixel in strip...
-      uint8_t pixel = frame["strip"][j]["p"];
-      String colorStr = frame["strip"][j]["c"];
-      uint32_t color = string2color(colorStr);
-      strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
-    }
-    strip.show();
-//    uint8_t next = frame["nextId"];
-//    frameIndex = next;
-//    delay(5000);
-//    delay(frame["strip"][i]["timeToNext"]);
-  }
+  gRequestDoc = requestDoc;
+  resetAnimation();
   return true;
 }
+
+void resetAnimation(){
+  //gReset = true;
+  gFrameIndex = 0;
+  gDelayTimeLeft = millis();
+  gNoOfFrames = gRequestDoc["numberOfFrames"];
+  Serial.printf("Number of frames: %i\n", gNoOfFrames);
+}
+
+void animate() {
+//  uint8_t frameIndex = 0;
+//  while(gFrameIndex < gNoOfFrames && !gReset && (millis() < gDelayTimeLeft)) {
+  if(gFrameIndex < gNoOfFrames && (millis() >= gDelayTimeLeft)) {
+//    Serial.printf("\nDrawing new frame at %i.\n", millis());
+    JsonObject frame = gRequestDoc["frame"][gFrameIndex];
+
+    if(uint8_t brightnessValue = frame["brightness"]){
+//      Serial.printf("Frame %i brightness is %i\n", gFrameIndex, brightnessValue);
+      setBrightnessValue(brightnessValue);
+    }
+
+    if(frame.containsKey("strip_size")){ 
+      uint8_t numOfPixels = frame["strip_size"];
+//      Serial.printf("Drawing %i pixels\n", numOfPixels); 
+      for(uint8_t j=0; j<numOfPixels; j++) { // For each pixel in strip...
+        String colorStr = frame["strip"][j]["c"];
+        uint32_t color = string2color(colorStr);
+        uint8_t pixelArrayCount = frame["strip"][j]["n"];
+        for (uint8_t pixelArrayIndex=0; pixelArrayIndex<pixelArrayCount; pixelArrayIndex++) {
+          uint8_t pixel = frame["strip"][j]["p"][pixelArrayIndex];
+//          Serial.printf("Pixel number %i has the color of %i\n", pixel, color);
+          strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
+        }
+      }
+    }
+    
+    strip.show();
+    if(frame.containsKey("nextId")) {
+      uint8_t next = frame["nextId"];
+      gFrameIndex = next;
+    }
+    else {
+      gFrameIndex++;
+    } 
+    Serial.printf("Next Frame ID: %i\n", gFrameIndex);
+   
+    if(frame.containsKey("timeToNext")) {
+      uint16_t timeToNext = frame["timeToNext"];
+      Serial.printf("Time to next: %i\n", timeToNext);
+      gDelayTimeLeft = millis() + timeToNext;
+      Serial.printf("Next calculated draw at or after: %i\n", gDelayTimeLeft);
+    }
+    else {
+      gDelayTimeLeft = millis();
+      Serial.printf("Next default draw at or after: %i\n", gDelayTimeLeft);
+    }
+  }
+}
+
+//
+////
+//// Handle setting an animation for the sign
+//// This function is going to receive a JSON object that contains colors on a per
+//// pixel basis, brightness for the entire strip, and more.
+////
+//boolean setNewAnimation() {
+//  Serial.println("Handling Animation");
+//  if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
+//    server.send(400, "text/plain", "Bad Request - Missing Body");
+//    return false;
+//  }
+//  //StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
+//  DynamicJsonDocument requestDoc(6000);
+//  DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
+//  if (error) {
+//    server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
+//    return false;
+//  }
+////  if (!requestDoc.containsKey("brightness" || )) {
+////    server.send(400, "text/plain", "Bad Request - Missing Brightness Argument");
+////    return false;
+////  }
+//
+//  uint8_t noOfFrames = requestDoc["numberOfFrames"];
+//  Serial.printf("Number of frames: %i\n", noOfFrames);
+//
+////  for(uint8_t frameIndex=0; frameIndex<noOfFrames;frameIndex++) {
+//  uint8_t frameIndex = 0;
+//  while(frameIndex < noOfFrames) {
+//    JsonObject frame = requestDoc["frame"][frameIndex];
+//
+//    if(uint8_t brightnessValue = frame["brightness"]){
+//      Serial.printf("Frame %i brightness is %i\n", frameIndex, brightnessValue);
+//      setBrightnessValue(brightnessValue);
+//    }
+//
+//    if(uint8_t numOfPixels = frame["strip_size"]){    
+//      for(uint8_t j=0; j<numOfPixels; j++) { // For each pixel in strip...
+//        String colorStr = frame["strip"][j]["c"];
+//        uint32_t color = string2color(colorStr);
+//        uint8_t pixelArrayCount = frame["strip"][j]["n"];
+//        for (uint8_t pixelArrayIndex=0; pixelArrayIndex<pixelArrayCount; pixelArrayIndex++) {
+//          uint8_t pixel = frame["strip"][j]["p"][pixelArrayIndex];
+//          Serial.printf("Pixel number %i has the color of %i\n", pixel, color);
+//          strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
+//        }
+//      }
+//    }
+//    
+//    strip.show();
+//    
+//    if(uint8_t next = frame["nextId"]){
+//      Serial.printf("Next Frame ID: %i\n", next);
+//      frameIndex = next;
+//    }
+//   
+//    if(uint16_t timeToNext = frame["timeToNext"]){
+//      Serial.printf("Time to next: %i\n", timeToNext);
+//      delay(timeToNext);
+//    }
+//  }
+//  return true;
+//}
 
 //
 // Display a Not Found page
