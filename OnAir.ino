@@ -11,6 +11,7 @@
 #include <WiFiUdp.h>            // For running OTA
 #include <ArduinoOTA.h>         // For running OTA
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
+//#include <WebSockets_Generic.h>
 
 #define PIXEL_PIN    2 //
 
@@ -50,10 +51,11 @@ int MAX_COLORS = sizeof(colorList) / sizeof(colorList[0]);
 int maxColors = MAX_COLORS - 1; // default to not showing the last color unless set by web
 int currentColor = 0;
 
+// global variables to hold the animation
 uint8_t gFrameIndex = 0;
 uint32_t gDelayTimeLeft = 0;
 uint8_t gNoOfFrames = 0;
-DynamicJsonDocument gRequestDoc(6000);
+DynamicJsonDocument gRequestDoc(8500);
 
 
 // For Web Server
@@ -738,6 +740,9 @@ boolean setLightColor() {
   maxColors = MAX_COLORS;
   colorList[maxColors-1] = color;
   turnLightOn(maxColors-1);
+  DynamicJsonDocument nullDoc(1);
+  gRequestDoc = nullDoc;
+  resetAnimation();
   return true;
 }
 
@@ -778,7 +783,7 @@ boolean setNewAnimation() {
     return false;
   }
   //StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
-  DynamicJsonDocument requestDoc(6000);
+  DynamicJsonDocument requestDoc(8500);
   DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
   if (error) {
     server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
