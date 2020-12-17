@@ -1,7 +1,8 @@
-// On Air Display control
-// Light up the On Air sign using a strip of 10 WS2812s
-// Button controls if sign is on or off
-// Webpage also available to control sign
+// Lily's Board LED control
+// Light up the strip of 100 WS2811s around a board
+// Webpage also available to control board
+// Rest interface that supports simple commands, JSON animation, and loading
+// of LUA scripts also available
 
 #include <Adafruit_NeoPixel.h>  // For controling the Light Strip
 #include <WiFiManager.h>        // For managing the Wifi Connection by TZAPU
@@ -11,14 +12,14 @@
 #include <WiFiUdp.h>            // For running OTA
 #include <ArduinoOTA.h>         // For running OTA
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
-//#include <WebSockets_Generic.h>
+#include <LuaWrapper.h>
 
 #define PIXEL_PIN    2 //
 
 #define PIXEL_COUNT 100  // Number of NeoPixels
 
 // Device Info
-const char* devicename = "LilED";
+const char* devicename = "LilEDTest";
 const char* devicepassword = "onairadmin";
 
 // Declare NeoPixel strip object:
@@ -56,6 +57,9 @@ uint8_t gFrameIndex = 0;
 uint32_t gDelayTimeLeft = 0;
 uint8_t gNoOfFrames = 0;
 DynamicJsonDocument gRequestDoc(8500);
+boolean gLuaBreak = false;
+
+LuaWrapper lua;
 
 
 // For Web Server
@@ -279,7 +283,7 @@ Brightness is currently set to <span id='brightness_state'></span><BR>
   </DIV>
   <DIV style='text-align: center; overflow: hidden;'>
     <label for='brightness'>Brightness</label><BR>
-    <input id="slide" type="range" min="1" max="254" step="1" value="254"><BR>
+    <input id="slide" type="range" min="0" max="100" step="1" value="100"><BR>
     <input type='button' id='increase_brightness' name='increase_brightness' style='width: 120px; height: 40px;' value='Brightness+' onClick='increaseBrightness();'><BR>
     <input type='button' id='decrease_brightness' name='decrease_brightness' style='width: 120px; height: 40px;' value='Brightness-' onClick='decreaseBrightness();'><BR>
 
@@ -323,7 +327,7 @@ void setup() {
   // wm.resetSettings();    // reset settings - for testing
 
   // Set static IP to see if it fixes my problem - joe
-  IPAddress _ip = IPAddress(192, 168, 1, 15);
+  IPAddress _ip = IPAddress(192, 168, 1, 14);
   IPAddress _gw = IPAddress(192, 168, 1, 1);
   IPAddress _sn = IPAddress(255, 255, 255, 0);
   wm.setSTAStaticIPConfig(_ip, _gw, _sn);
@@ -391,9 +395,23 @@ void setup() {
   server.on("/light", handleLight);
   server.on("/brightness", handleBrightness);
   server.on("/animation", handleAnimation);
+  server.on("/script", handleScript);
   server.onNotFound(handleNotFound);
   server.begin();
   //Serial.println("HTTP server started");
+
+  //
+  // Setup Lua Wrappers
+  //
+  lua.Lua_register("setBrightness", (const lua_CFunction) &lua_wrapper_setBrightnessValue);
+  lua.Lua_register("setPixelColor", (const lua_CFunction) &lua_wrapper_setPixelColor);
+  lua.Lua_register("setPixelColorWithHue", (const lua_CFunction) &lua_wrapper_setPixelColorWithHue);
+  lua.Lua_register("show", (const lua_CFunction) &lua_wrapper_show);
+  lua.Lua_register("delay", (const lua_CFunction) &lua_wrapper_delay);
+  lua.Lua_register("millis", (const lua_CFunction) &lua_wrapper_millis);
+  lua.Lua_register("loop", (const lua_CFunction) &lua_wrapper_loop);
+  lua.Lua_register("color", (const lua_CFunction) &lua_wrapper_color);
+  lua.Lua_register("check4break", (const lua_CFunction) &lua_wrapper_luaBreak);
 
 
   //
@@ -401,6 +419,8 @@ void setup() {
   //
   ticker.detach();          // Stop blinking the LED strip
   colorSet(strip.Color(  0, 255,   0)); // Use Green to indicate the setup is done.
+  pinMode(LED_BUILTIN, OUTPUT);
+  digitalWrite(LED_BUILTIN, LOW);
   delay(2000);
   turnLightOff();
 }
@@ -499,7 +519,13 @@ void turnLightOff() {
 void setBrightnessValue(uint8_t bright_value) {
   int mappedValue = map(bright_value%255, 0, 100, 1, 254);
   lightBrightness = mappedValue;
+  Serial.printf("Setting brightness value to %i", lightBrightness);
   strip.setBrightness(mappedValue);  //valid brightness values are 0<->255
+}
+
+static int lua_wrapper_setBrightnessValue(lua_State *lua_state) {
+  uint8_t a = luaL_checkinteger(lua_state, 1);
+  setBrightnessValue(a);
 }
 
 /*
@@ -680,9 +706,32 @@ void handleAnimation() {
       break;
   }
 }
+
+//
+// Handle service for Script
+//
+void handleScript() {
+  switch (server.method()) {
+    case HTTP_POST:
+      if (setScript()) {
+        sendStatus();
+      }
+      break;
+    case HTTP_GET:
+      sendStatus();
+      break;
+    case HTTP_DELETE:
+      gLuaBreak = true;
+      sendStatus();
+      break;
+    default:
+      server.send(405, "text/plain", "Method Not Allowed");
+      break;
+  }
+}
   
 //
-// Handle returning the status of the sign
+// Handle returning the status of the strip
 //
 void sendStatus() {
   DynamicJsonDocument jsonDoc(1024);
@@ -718,7 +767,7 @@ void sendStatus() {
 }
 
 //
-// Handle setting a new color for the sign
+// Handle setting a new color for the strip
 //
 boolean setLightColor() {
   if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
@@ -747,7 +796,7 @@ boolean setLightColor() {
 }
 
 //
-// Handle setting a brightness for the sign
+// Handle setting a brightness 
 //
 boolean setBrightness() {
   if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
@@ -825,7 +874,7 @@ void animate() {
         String colorStr = frame["strip"][j]["c"];
         uint32_t color = string2color(colorStr);
         uint8_t pixelArrayCount = frame["strip"][j]["n"];
-        for (uint8_t pixelArrayIndex=0; pixelArrayIndex<pixelArrayCount; pixelArrayIndex++) {
+        for (uint8_t pixelArrayIndex=0; pixelArrayIndex < pixelArrayCount; pixelArrayIndex++) {
           uint8_t pixel = frame["strip"][j]["p"][pixelArrayIndex];
 //          Serial.printf("Pixel number %i has the color of %i\n", pixel, color);
           strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
@@ -856,71 +905,97 @@ void animate() {
   }
 }
 
-//
-////
-//// Handle setting an animation for the sign
-//// This function is going to receive a JSON object that contains colors on a per
-//// pixel basis, brightness for the entire strip, and more.
-////
-//boolean setNewAnimation() {
-//  Serial.println("Handling Animation");
-//  if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
-//    server.send(400, "text/plain", "Bad Request - Missing Body");
-//    return false;
-//  }
-//  //StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
-//  DynamicJsonDocument requestDoc(6000);
-//  DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
-//  if (error) {
-//    server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
-//    return false;
-//  }
-////  if (!requestDoc.containsKey("brightness" || )) {
-////    server.send(400, "text/plain", "Bad Request - Missing Brightness Argument");
-////    return false;
-////  }
-//
-//  uint8_t noOfFrames = requestDoc["numberOfFrames"];
-//  Serial.printf("Number of frames: %i\n", noOfFrames);
-//
-////  for(uint8_t frameIndex=0; frameIndex<noOfFrames;frameIndex++) {
-//  uint8_t frameIndex = 0;
-//  while(frameIndex < noOfFrames) {
-//    JsonObject frame = requestDoc["frame"][frameIndex];
-//
-//    if(uint8_t brightnessValue = frame["brightness"]){
-//      Serial.printf("Frame %i brightness is %i\n", frameIndex, brightnessValue);
-//      setBrightnessValue(brightnessValue);
-//    }
-//
-//    if(uint8_t numOfPixels = frame["strip_size"]){    
-//      for(uint8_t j=0; j<numOfPixels; j++) { // For each pixel in strip...
-//        String colorStr = frame["strip"][j]["c"];
-//        uint32_t color = string2color(colorStr);
-//        uint8_t pixelArrayCount = frame["strip"][j]["n"];
-//        for (uint8_t pixelArrayIndex=0; pixelArrayIndex<pixelArrayCount; pixelArrayIndex++) {
-//          uint8_t pixel = frame["strip"][j]["p"][pixelArrayIndex];
-//          Serial.printf("Pixel number %i has the color of %i\n", pixel, color);
-//          strip.setPixelColor(pixel, color);         //  Set pixel's color (in RAM)
-//        }
-//      }
-//    }
-//    
-//    strip.show();
-//    
-//    if(uint8_t next = frame["nextId"]){
-//      Serial.printf("Next Frame ID: %i\n", next);
-//      frameIndex = next;
-//    }
-//   
-//    if(uint16_t timeToNext = frame["timeToNext"]){
-//      Serial.printf("Time to next: %i\n", timeToNext);
-//      delay(timeToNext);
-//    }
-//  }
-//  return true;
-//}
 
+//
+// Handle setting a LUA script
+//
+boolean setScript() {
+  Serial.println("Handling Script");
+  if ((!server.hasArg("plain")) || (server.arg("plain").length() == 0)) {
+    server.send(400, "text/plain", "Bad Request - Missing Body");
+    return false;
+  }
+  //StaticJsonDocument<5000> requestDoc;  //suggested size for a 100 element array from arduinojson.org
+  DynamicJsonDocument requestDoc(1000);
+  DeserializationError error = deserializeJson(requestDoc, server.arg("plain"));
+  if (error) {
+    server.send(400, "text/plain", "Bad Request - Parsing JSON Body Failed");
+    return false;
+  }
+  if (!requestDoc.containsKey("script")) {
+    server.send(400, "text/plain", "Bad Request - Missing Script Argument");
+    return false;
+  }
+  String script = requestDoc["script"];
+  DynamicJsonDocument nullDoc(1);
+  gRequestDoc = nullDoc;
+  resetAnimation();
+  Serial.println();
+  Serial.println("# Executing script: ");
+  Serial.println(script);
+  Serial.println(lua.Lua_dostring(&script));
+  return true;
+}
+
+//
+// Lua wrappers
+//
+static int lua_wrapper_setPixelColor(lua_State *lua_state) {
+  int a = luaL_checkinteger(lua_state, 1);
+  int b = luaL_checkinteger(lua_state, 2);
+  strip.setPixelColor(a, b);
+  return 0;
+}
+
+static int lua_wrapper_setPixelColorWithHue(lua_State *lua_state) {
+  int pixel = luaL_checkinteger(lua_state, 1);
+  double pixelHue = luaL_checknumber(lua_state, 2);
+  strip.setPixelColor(pixel, strip.gamma32(strip.ColorHSV(pixelHue)));
+  return 0;
+}
+
+static int lua_wrapper_color(lua_State *lua_state) {
+  int red = luaL_checkinteger(lua_state, 1);
+  int green = luaL_checkinteger(lua_state, 2);
+  int blue = luaL_checkinteger(lua_state, 3);
+  lua_pushnumber(lua_state, (lua_Number)strip.Color(red, green, blue));
+  return 1;
+}
+static int lua_wrapper_show(lua_State *lua_state) {
+  strip.show();
+  return 0;
+}
+
+static int lua_wrapper_delay(lua_State *lua_state) {
+  int a = luaL_checkinteger(lua_state, 1);
+  delay(a);
+  return 0;
+}
+
+static int lua_wrapper_millis(lua_State *lua_state) {
+  lua_pushnumber(lua_state, (lua_Number) millis());
+  return 1;
+}
+
+static int lua_wrapper_loop(lua_State *lua_state) {
+  loop();
+  return 0;
+}
+
+static int lua_wrapper_luaBreak(lua_State *lua_state) {
+  lua_pushboolean(lua_state, !luaBreak());
+return 1;
+}
+
+boolean luaBreak() {
+  if (gLuaBreak == true) {
+    gLuaBreak == false;
+    return true;
+  }
+  else {
+    return false;
+  }
+}
 //
 // Display a Not Found page
 //
