@@ -14,7 +14,7 @@
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 #include <LuaWrapper.h>
 
-#define PIXEL_PIN    2 //
+#define PIXEL_PIN    4 //
 
 #define PIXEL_COUNT 100  // Number of NeoPixels
 
@@ -419,8 +419,8 @@ void setup() {
   //
   ticker.detach();          // Stop blinking the LED strip
   colorSet(strip.Color(  0, 255,   0)); // Use Green to indicate the setup is done.
-  pinMode(LED_BUILTIN, OUTPUT);
-  digitalWrite(LED_BUILTIN, LOW);
+  pinMode(2, OUTPUT);
+  digitalWrite(2, HIGH);
   delay(2000);
   turnLightOff();
 }
