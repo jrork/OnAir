@@ -3,6 +3,7 @@
 // Webpage also available to control board
 // Rest interface that supports simple commands, JSON animation, and loading
 // of LUA scripts also available
+#include <WebSocketsServer_Generic.h>
 
 #include <Adafruit_NeoPixel.h>  // For controling the Light Strip
 #include <WiFiManager.h>        // For managing the Wifi Connection by TZAPU
@@ -13,6 +14,7 @@
 #include <ArduinoOTA.h>         // For running OTA
 #include <ArduinoJson.h>          //https://github.com/bblanchon/ArduinoJson
 #include <LuaWrapper.h>
+
 
 #define PIXEL_PIN    4 //
 
@@ -64,6 +66,40 @@ LuaWrapper lua;
 
 // For Web Server
 ESP8266WebServer server(80);
+WebSocketsServer webSocket = WebSocketsServer(81);
+uint8_t connectedClient = 0;
+
+void webSocketEvent(uint8_t num, WStype_t type, uint8_t * payload, size_t length)
+{
+  switch (type)
+  {
+    case WStype_DISCONNECTED:
+      Serial.printf("[%u] Disconnected!\n", num);
+      break;
+      
+    case WStype_CONNECTED:
+      {
+        IPAddress ip = webSocket.remoteIP(num);
+        Serial.printf("[%u] Connected from %d.%d.%d.%d url: %s\n", num, ip[0], ip[1], ip[2], ip[3], payload);
+        connectedClient = num;
+        // send message to client
+        webSocket.sendTXT(num, "Connected");
+      }
+      break;
+    case WStype_TEXT:
+      Serial.printf("[%u] get Text: %s\n", num, payload);
+
+      if (payload[0] == '#')
+      {
+        uint32_t color = string2color((const char *)payload);
+        colorSet(color);
+      }
+      break;
+
+    default:
+      break;
+  }
+}
 
 // Main Page
 static const char MAIN_PAGE[] PROGMEM = R"====(
@@ -75,6 +111,13 @@ static const char MAIN_PAGE[] PROGMEM = R"====(
 var light_on = false;
 var light_color = '#000000';
 var light_brightness = 100;
+
+var connection = new WebSocket('ws://'+location.hostname+':81/', ['arduino']);
+  
+connection.onopen = function () {  connection.send('Connect ' + new Date()); }; 
+connection.onerror = function (error) {    console.log('WebSocket Error ', error);};
+connection.onmessage = function (e) {  console.log('Server: ', e.data);};
+
 
 //
 // Print an Error message
@@ -245,7 +288,19 @@ function setBrightness(brightVal) {
   restCall('POST', '/brightness', statusLoaded, JSON.stringify(postObj));
 }
 
+function sendRGB() {  
+    var r = parseInt(document.getElementById('r').value).toString(16);  
+    var g = parseInt(document.getElementById('g').value).toString(16);  
+    var b = parseInt(document.getElementById('b').value).toString(16);  
+    if(r.length < 2) { r = '0' + r; }   
+    if(g.length < 2) { g = '0' + g; }   
+    if(b.length < 2) { b = '0' + b; }   
+    var rgb = '#'+r+g+b;   
 
+  console.log('RGB: ' + rgb); 
+  connection.send(rgb); 
+}
+  
 </SCRIPT>
 </HEAD>
 <BODY style='max-width: 960px; margin: auto;' onload='doOnLoad();'>
@@ -288,6 +343,12 @@ Brightness is currently set to <span id='brightness_state'></span><BR>
     <input type='button' id='decrease_brightness' name='decrease_brightness' style='width: 120px; height: 40px;' value='Brightness-' onClick='decreaseBrightness();'><BR>
 
   </DIV>
+  <DIV>
+  LED Control:<br/><br/>
+  R: <input id="r" type="range" min="0" max="255" step="1" oninput="sendRGB();" /><br/>
+  G: <input id="g" type="range" min="0" max="255" step="1" oninput="sendRGB();" /><br/>
+  B: <input id="b" type="range" min="0" max="255" step="1" oninput="sendRGB();" /><br/>
+  </DIV>
 </DIV>
 </form>
 <HR style='margin-top: 10px; margin-bottom: 10px;'>
@@ -311,7 +372,7 @@ slide.onchange = function() {
  * Setup
  *************************************************/
 void setup() {
-  Serial.begin(115200);
+  Serial.begin(74880);
 
   strip.begin(); // Initialize NeoPixel strip object (REQUIRED)
   strip.show();  // Initialize all pixels to 'off'
@@ -342,6 +403,9 @@ void setup() {
   }
   Serial.println("connected");
 
+  // start webSocket server
+  webSocket.begin();
+  webSocket.onEvent(webSocketEvent);
 
   //
   // Set up the Multicast DNS
@@ -432,6 +496,7 @@ void setup() {
 void loop() {
   // Handle any requests
   ArduinoOTA.handle();
+  webSocket.loop();
   server.handleClient();
   //MDNS.update();
   animate();
@@ -519,8 +584,14 @@ void turnLightOff() {
 void setBrightnessValue(uint8_t bright_value) {
   int mappedValue = map(bright_value%255, 0, 100, 1, 254);
   lightBrightness = mappedValue;
-  Serial.printf("Setting brightness value to %i", lightBrightness);
+  Serial.printf("Setting brightness value to %i\n", lightBrightness);
   strip.setBrightness(mappedValue);  //valid brightness values are 0<->255
+  
+  //Adding test websocket send code here
+  char msg_buf[10];
+  sprintf(msg_buf, "%d", mappedValue);
+  Serial.printf("Sending to [%u]: %s\n", connectedClient, msg_buf);
+  webSocket.sendTXT(connectedClient, msg_buf);
 }
 
 static int lua_wrapper_setBrightnessValue(lua_State *lua_state) {
